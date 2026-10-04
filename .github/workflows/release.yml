@@ -1,0 +1,68 @@
+name: Release Matrix
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+        include:
+          - goos: linux
+            goarch: arm
+            goarm: 7
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          check-latest: true
+
+      - name: Build Binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: 0
+        run: |
+          BINARY_NAME="engsel"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BINARY_NAME="engsel.exe"
+          fi
+
+          LDFLAGS="-s -w"
+          go build -ldflags="$LDFLAGS" -trimpath -o "$BINARY_NAME" .
+
+          # Package artifact
+          ARCH_NAME="${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ -n "${{ matrix.goarm }}" ]; then
+            ARCH_NAME="${{ matrix.goos }}-${{ matrix.goarch }}v${{ matrix.goarm }}"
+          fi
+
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -r "engsel-${ARCH_NAME}.zip" "$BINARY_NAME" README.md .env.template hot_data decoy_data bnr.png
+          else
+            tar -czvf "engsel-${ARCH_NAME}.tar.gz" "$BINARY_NAME" README.md .env.template hot_data decoy_data bnr.png
+          fi
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            engsel-*.tar.gz
+            engsel-*.zip
